@@ -1,0 +1,328 @@
+pragma solidity ^0.4.23;
+
+library SafeMath {
+
+    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+        if (a == 0) {
+            return 0;
+        }
+
+        uint256 c = a * b;
+        require(c / a == b);
+
+        return c;
+    }
+
+    function div(uint256 a, uint256 b) internal pure returns (uint256) {
+        require(b > 0);
+        uint256 c = a / b;
+        return c;
+    }
+
+    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+        require(b <= a);
+        uint256 c = a - b;
+
+        return c;
+    }
+
+    function add(uint256 a, uint256 b) internal pure returns (uint256) {
+        uint256 c = a + b;
+        require(c >= a);
+
+        return c;
+    }
+
+}
+
+contract Token {
+    
+    using SafeMath for uint256;
+    
+    uint256 private _totalSupply;
+    mapping(address => uint256) private _balanceOf;
+    mapping(address => uint256) private _lockedBalanceOf;
+    mapping(address => mapping(address => uint256)) private _allowance;
+    
+    event Transfer(address indexed from, address indexed to, uint256 amount);
+    event Approval(address indexed owner, address indexed spender, uint256 amount);
+    
+    function totalSupply() public view returns(uint256) {
+        return _totalSupply;
+    }
+    
+    function balanceOf(address who) public view returns(uint256) {
+        return _balanceOf[who];
+    }
+    
+    function lockedBalanceOf(address who) public view returns(uint256) {
+        return _lockedBalanceOf[who];
+    }
+    
+    function allowance(address from, address to) public view returns(uint256) {
+        return _allowance[from][to];
+    }
+    
+    function transfer(address to, uint256 amount) public returns(bool) {
+        return transferFrom(msg.sender, to, amount);
+    }
+    
+    function approve(address to, uint256 amount) public returns(bool) {
+        require(_allowance[msg.sender][to] == 0 || amount == 0);
+        _allowance[msg.sender][to] = amount;
+        emit Approval(msg.sender, to, amount);
+    }
+    
+    function transferFrom(address from, address to, uint256 amount) public returns(bool) {
+        if (from != msg.sender && _allowance[from][to] != uint(-1)) {
+            _allowance[from][to] = _allowance[from][to].sub(amount);
+        }
+
+        _balanceOf[from] = _balanceOf[from].sub(amount);
+        _balanceOf[to] = _balanceOf[to].add(amount);
+        emit Transfer(from, to, amount);
+        return true;
+    }
+    
+    function _mint(address receiver, uint256 amount) internal {
+        _balanceOf[receiver] = _balanceOf[receiver].add(amount);
+        _totalSupply = _totalSupply.add(amount);
+        emit Transfer(address(0), receiver, amount);
+    }
+    
+    function _burn(address spender, uint256 amount) internal {
+        _balanceOf[spender] = _balanceOf[spender].sub(amount.div(2));
+        _totalSupply = _totalSupply.sub(amount);
+        emit Transfer(spender, address(0), amount);
+    }
+    
+    function _increaseLock(address user, uint256 amount) internal {
+        _lockedBalanceOf[user] = _lockedBalanceOf[user].add(amount);
+    }
+    
+    function _decreaseLock(address user, uint256 amount) internal {
+        if (_lockedBalanceOf[user] > amount) {
+            _lockedBalanceOf[user] = _lockedBalanceOf[user].sub(amount);
+        } else {
+            _lockedBalanceOf[user] = 0;
+        }
+    }
+    
+    function _eraseLock(address user) internal {
+        _lockedBalanceOf[user] = 0;
+    }
+}
+
+contract Coin is Token {
+    
+    using SafeMath for uint256;
+    
+    uint8 constant public decimals = 8;
+    string constant public name = "Tron Global";
+    string constant public symbol = "TGB";
+    
+    uint constant public COIN_PRICE = 25; // Coin Value Per Trx
+    
+    uint public totalCoins;
+    
+    function safeTotalCoins() internal view returns(uint256) {
+        return (totalCoins > 0) ? totalCoins : 1;
+    }
+    
+    function safeTotalSupply() internal view returns(uint256) {
+        return (totalSupply() > 0) ? totalSupply() : 1;
+    }
+    
+    function coinsOf(address user) public view returns(uint256) {
+        return totalCoins.mul(balanceOf(user)).div(safeTotalSupply());
+    }
+    
+    function lockedCoinsOf(address user) public view returns(uint256) {
+        return totalCoins.mul(lockedBalanceOf(user)).div(safeTotalSupply());
+    }
+    
+    function _mintCoins(address user, uint256 amount) internal {
+        _mint(user, amount.mul(safeTotalSupply()).div(safeTotalSupply()));
+        totalCoins = totalCoins.add(amount);
+        
+    }
+    
+    function _burnCoins(address user, uint256 amount) internal {
+        _burn(user, amount.mul(safeTotalSupply()).div(safeTotalCoins()));
+        totalCoins = totalCoins.sub(amount);
+    }
+    
+    function _increaseLockCoins(address user, uint256 amount) internal {
+        _increaseLock(user, amount.mul(safeTotalSupply()).div(safeTotalCoins()));
+    }
+    
+    function _decreaseLockCoins(address user, uint256 amount) internal {
+        _decreaseLock(user, amount.mul(safeTotalSupply()).div(safeTotalCoins()));
+    }
+}
+
+contract Tron_Global is Coin {
+    
+    using SafeMath for uint256;
+    
+    // Struct
+    
+    struct Player {
+        uint lastPaidTime;
+        uint[TYPES_FACTORIES] factories;
+        uint factoriesCount;
+        uint dayStarted;
+        uint dayVolume;
+        uint tasks;
+    }
+    
+    // Constants
+    uint constant public COIN_PRICE = 25; // Coin Value Per Trx
+    uint constant public TYPES_FACTORIES = 7; 
+    uint constant public PERIOD = 1 hours;
+    uint[TYPES_FACTORIES] public prices = [4375, 17625, 65000, 232500, 705000, 1450000,2500000];
+    uint[TYPES_FACTORIES] public profit = [6, 24, 92, 336, 1038, 2176, 868];
+    
+    // Variables
+    address public owner = msg.sender;
+    address public manager;
+    
+    // Public Variables
+    uint public investedTrx;    // Total Amount of  Deposit
+    uint public withdrawTrx;    // Total Amount of  Withdraw
+    uint public usersCount;     // Number of  Users
+    uint public totalFactories; // Total Number of Factories
+    
+    // Mapping Functionalities
+    mapping(address => Player) public players;  // Player Details --
+    
+    function factories(address user) public view returns(uint[TYPES_FACTORIES] memory){
+        return players[user].factories;
+    }
+   
+    function deposit() public payable {
+        require(msg.value % COIN_PRICE == 0);
+        
+        Player storage player = players[msg.sender];
+        _mintCoins(msg.sender, msg.value.div(COIN_PRICE));
+       
+        if(player.lastPaidTime == 0) {
+            player.lastPaidTime = now;
+            usersCount++;
+        }
+            
+        investedTrx = investedTrx.add(msg.value);
+    }
+    
+    function buy(uint factoryType, uint number) public {
+        require(factoryType < TYPES_FACTORIES && number > 0);
+        
+        Player storage player = players[msg.sender];
+        uint total_cost = number.mul(prices[factoryType]);
+        require(total_cost <= coinsOf(msg.sender));
+        
+        _burnCoins(msg.sender, total_cost);
+        _decreaseLockCoins(msg.sender, total_cost);
+        
+        // 10% to owner, 20% to all shareholders, 70% to game dividends
+        _mintCoins(owner, total_cost.mul(10).div(100));
+        totalCoins += total_cost.mul(20).div(100);
+        // !!! decrease user coins to be fixed at this step
+        
+        player.factories[factoryType] = player.factories[factoryType].add(number);
+        uint prevFactories = player.factoriesCount;
+        player.factoriesCount = player.factoriesCount.add(number);
+        totalFactories = totalFactories.add(number);
+
+        // Achievements
+
+        uint256 prevVolume = player.dayVolume;
+        if (now > player.dayStarted + 1 days) {
+            prevVolume = 0;
+            player.dayStarted = now;
+            player.dayVolume = total_cost.div(COIN_PRICE);
+        } else {
+            player.dayVolume += total_cost.div(COIN_PRICE);
+        }
+        
+        // One time achievements
+        
+        uint achievementReward = 0;
+        uint prevTasks = player.tasks;
+        
+        if (player.factoriesCount >= 100 && prevFactories < 100 && (player.tasks & 0x01) == 0) {
+            achievementReward = achievementReward.add(13000);
+            player.tasks |= 0x01;
+        }
+        if (player.factoriesCount >= 400 && prevFactories < 400 && (player.tasks & 0x02) == 0) {
+            achievementReward = achievementReward.add(55000);
+            player.tasks |= 0x02;
+        }
+        if (player.factories[TYPES_FACTORIES - 1] >= 1 && (player.tasks & 0x04) == 0) {
+            achievementReward = achievementReward.add(75000);
+            player.tasks |= 0x04;
+        }
+        if (player.factories[TYPES_FACTORIES - 1] >= 3 && (player.tasks & 0x08) == 0) {
+            achievementReward = achievementReward.add(250000);
+            player.tasks |= 0x08;
+        }
+        if (prevTasks != 0x0F && player.tasks == 0x0F) {
+            achievementReward = achievementReward.add(1455000);
+        }
+
+        // Daily achievements
+     
+        if (prevVolume < 5000 && player.dayVolume >= 5000) {
+            achievementReward = achievementReward.add(4000);
+        }
+        if (prevVolume < 25000 && player.dayVolume >= 25000) {
+            achievementReward = achievementReward.add(15000);
+        }
+        if (prevVolume < 50000 && player.dayVolume >= 50000) {
+            achievementReward = achievementReward.add(30000);
+        }
+        if (prevVolume < 100000 && player.dayVolume >= 100000) {
+            achievementReward = achievementReward.add(60000);
+        }
+
+        if (achievementReward > 0) {
+            _mintCoins(msg.sender, achievementReward);
+            _increaseLockCoins(msg.sender, achievementReward);
+        }
+    }
+    
+    function collect(address user) public returns(uint256) {
+        Player storage player = players[user];
+        require(player.lastPaidTime > 0);
+
+        uint hoursPassed = now.sub(player.lastPaidTime).div(PERIOD);
+        require(hoursPassed > 0);
+
+        uint hourlyProfit = userProfitPerHour(user);
+        uint collectedCoins = hoursPassed.mul(hourlyProfit);
+
+        _mintCoins(user, collectedCoins);
+        _increaseLockCoins(user, collectedCoins.div(2));
+        player.lastPaidTime = player.lastPaidTime.add(hoursPassed.mul(PERIOD));
+        
+        return collectedCoins;
+    }
+    
+    function withdraw(uint256 coins) public {
+        _burnCoins(msg.sender, coins);
+        msg.sender.transfer(coins * COIN_PRICE);
+        withdrawTrx = withdrawTrx.add(coins * COIN_PRICE);
+    }
+    
+    function userProfit(address user) public view returns(uint) {
+        uint hoursPassed = now.sub(players[user].lastPaidTime).div(PERIOD);
+        return userProfitPerHour(user).mul(hoursPassed);
+    }
+
+    function userProfitPerHour(address user) public view returns(uint hourlyProfit) {
+        Player storage player = players[user];
+        for (uint i = 0; i < TYPES_FACTORIES; i++) {
+            hourlyProfit = hourlyProfit.add(player.factories[i].mul(profit[i]));
+        }
+    }
+}
